@@ -1,0 +1,80 @@
+# Security scanning for the backend (NestJS) and frontend (Next.js).
+#
+# Two checks, no cloud credentials needed:
+#   1. Dependency audit  — `npm audit` on production dependencies. Fails on
+#      HIGH or CRITICAL advisories (change AUDIT_LEVEL below to tune this).
+#   2. Trivy filesystem  — scans the source tree for hard-coded secrets and
+#      for misconfigurations in the Dockerfiles. Fails on HIGH or CRITICAL.
+#
+# Runs on every push and PR to main, weekly (new advisories appear even when
+# the code doesn't change), and on demand from the Actions tab.
+
+name: Security scan
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  AUDIT_LEVEL: high # low | moderate | high | critical
+  TRIVY_IMAGE: aquasec/trivy:0.58.1 # pinned; bump deliberately
+
+jobs:
+  dependency-audit:
+    name: npm audit (${{ matrix.app }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [backend, frontend]
+    defaults:
+      run:
+        working-directory: ${{ matrix.app }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # npm audit only needs package-lock.json, so no `npm ci` is required.
+      - name: Write audit report to job summary
+        if: always()
+        run: |
+          {
+            echo "## npm audit — ${{ matrix.app }} (production dependencies)"
+            echo '```'
+            npm audit --omit=dev || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Fail on ${{ env.AUDIT_LEVEL }}+ advisories
+        run: npm audit --omit=dev --audit-level="$AUDIT_LEVEL"
+
+  trivy:
+    name: Trivy secrets & misconfig (${{ matrix.app }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [backend, frontend]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Scan ${{ matrix.app }}
+        run: |
+          docker run --rm -v "$PWD/${{ matrix.app }}:/src:ro" "$TRIVY_IMAGE" \
+            fs /src \
+            --scanners secret,misconfig \
+            --severity HIGH,CRITICAL \
+            --skip-dirs node_modules,dist,.next \
+            --exit-code 1 \
+            --no-progress

@@ -25,7 +25,7 @@ ecommerce/                     this repo
 │   ├── strategy.md               the deployment architecture, explained
 │   ├── devsecops-pipeline.md     CI pipeline design (GitHub Actions)
 │   └── gitlab-ci.yml             the same pipeline, for GitLab instead
-├── .github/workflows/deploy.yml  the one CI workflow that's actually real today
+├── .github/workflows/security-scan.yml  npm audit + Trivy on backend & frontend (the only active workflow)
 └── README.md                     app-level docs: local run, full API reference
 
 robotic-tests/                 sibling repo — Robot Framework + Playwright
@@ -103,8 +103,9 @@ path:
 3. **CI** — `deployment/devsecops-pipeline.md` describes the intended
    lint/test/SCA/SAST/scan/smoke-test gate as `backend-ci.yml`/
    `frontend-ci.yml`; **these two files don't exist yet** — only
-   `.github/workflows/deploy.yml` (the push-to-registry-and-bump-tag half)
-   is real today. Building the PR-gate half is the natural next step here,
+   `.github/workflows/security-scan.yml` (npm audit + Trivy) is active today;
+   the AWS push-to-registry-and-bump-tag half (`deploy.yml`) was removed for
+   now and can be restored from commit `7ef1ebc`. Building the PR-gate half is the natural next step here,
    using the design doc as the spec. `deployment/gitlab-ci.yml` is the
    equivalent for GitLab instead, already written as a real file.
 4. **Local Kubernetes** — `deployment/docs/kind-local-guide.md`, get `dev`
@@ -133,7 +134,7 @@ Prerequisites sections.
 | `deployment/strategy.md` | Deployment architecture: why Helm not Kustomize, why two ArgoCDs, why Argo Rollouts |
 | `deployment/devsecops-pipeline.md` | CI pipeline design + Jenkins/GitHub Actions/GitLab CI comparison |
 | `deployment/gitlab-ci.yml` | The CI pipeline, as a real GitLab CI file |
-| `.github/workflows/deploy.yml` | The CI pipeline's build-and-deploy half, as a real GitHub Actions file |
+| `.github/workflows/security-scan.yml` | Dependency audit + secret/misconfig scanning for backend and frontend |
 | `deployment/docs/kind-local-guide.md` | Local Kubernetes, step by step |
 | `deployment/docs/aws-eks-guide.md` | Cloud Kubernetes, step by step |
 | `deployment/docs/electives-install-guide.md` | Prometheus/Grafana, Vault, Falco, Karpenter, Litmus, K8sGPT — step by step |

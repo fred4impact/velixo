@@ -163,7 +163,11 @@ Commit and push all of this.
 
 ## 8. First images
 
-CI ([.github/workflows/deploy.yml](../../.github/workflows/deploy.yml))
+> **Note:** `.github/workflows/deploy.yml` is currently removed from the repo
+> (only a security scan runs in CI). Restore it before following this step:
+> `git checkout 7ef1ebc -- .github/workflows/deploy.yml`
+
+CI (`.github/workflows/deploy.yml`)
 handles this on every push to `main` once its repo secrets/vars are set
 (`AWS_ROLE_ARN`, `AWS_ACCOUNT_ID`, `AWS_REGION`,
 `STRIPE_PUBLISHABLE_KEY_STAGE`/`_PROD`) — see the comments at the top of
