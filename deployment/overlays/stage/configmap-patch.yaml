@@ -1,0 +1,12 @@
+# Non-secret values pointing at real AWS services instead of in-cluster ones.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backend-config
+data:
+  FRONTEND_URL: https://ecommerce-stage.example.com
+  MINIO_ENDPOINT: s3.us-east-1.amazonaws.com
+  MINIO_PORT: "443"
+  MINIO_USE_SSL: "true"
+  MINIO_BUCKET: ecommerce-stage-product-images
+  MINIO_PUBLIC_URL: https://ecommerce-stage-product-images.s3.us-east-1.amazonaws.com

@@ -1,0 +1,7 @@
+# helm install argo-rollouts argo/argo-rollouts -n argo-rollouts --create-namespace -f values.yaml
+dashboard:
+  enabled: true
+controller:
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: 500m, memory: 512Mi }

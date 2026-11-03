@@ -1,0 +1,22 @@
+# Not a Kubernetes manifest — a record of the `vault write` commands that
+# configure Vault's Kubernetes auth method, run once against the dev-mode
+# server (see deployment/docs/electives-install-guide.md §2 for the full
+# sequence this is excerpted from).
+#
+# vault auth enable kubernetes
+#
+# vault write auth/kubernetes/config \
+#   kubernetes_host="https://kubernetes.default.svc:443"
+#
+# vault write auth/kubernetes/role/ecommerce-dev \
+#   bound_service_account_names=default \
+#   bound_service_account_namespaces=ecommerce-dev \
+#   policies=ecommerce-dev-read \
+#   ttl=1h
+#
+# ecommerce-dev is the role name referenced by
+# helm/ecommerce/values.yaml's externalSecrets.vault.role, and
+# ecommerce-dev-read is the policy loaded from dev-policy.hcl in this same
+# directory:
+#
+# vault policy write ecommerce-dev-read dev-policy.hcl

@@ -1,0 +1,361 @@
+# GitLab CI equivalent of the GitHub Actions pipelines described in
+# devsecops-pipeline.md. Same stages, same tools (npm audit, SonarCloud,
+# Hadolint, Trivy, the Robot Framework suite), GitLab-native registry +
+# environments instead of GHCR + GitHub Environments.
+#
+# This file is deliberately NOT at the repo root (GitLab's default CI/CD
+# config path is root .gitlab-ci.yml). To use it, either:
+#   a) Settings > CI/CD > General Pipelines > "CI/CD configuration file" ->
+#      deployment/gitlab-ci.yml, or
+#   b) add a root .gitlab-ci.yml containing only:
+#        include:
+#          - local: 'deployment/gitlab-ci.yml'
+#
+# --- Real prerequisite this file assumes, read before wiring it up ---
+# `robotic-tests/` (the Robot Framework suite) lives OUTSIDE this repo, as a
+# sibling directory (`../robotic-tests` on disk) — not a subdirectory of
+# `ecommerce/`. A GitLab CI job only checks out the project it belongs to, so
+# every smoke-test job below `git clone`s it separately via $ROBOTIC_TESTS_REPO.
+# That means `robotic-tests/` needs to become its own GitLab project with its
+# own remote before these jobs will work — it isn't one yet (`git init` was
+# never run there either). Simplest alternative if you'd rather not maintain
+# a second repo: move `robotic-tests/` inside this repo (e.g.
+# `ecommerce/robotic-tests/`) and replace the clone step with a plain `cd`.
+#
+# --- Required CI/CD variables (Settings > CI/CD > Variables) ---
+#   SONAR_TOKEN                  SonarCloud project token
+#   STRIPE_TEST_PUBLISHABLE_KEY  baked into the frontend image at build time
+#   ROBOTIC_TESTS_REPO           clone URL for the robotic-tests project
+#   GIT_PUSH_TOKEN               a Project/Group Access Token with the
+#                                 `write_repository` scope — newer GitLab
+#                                 versions restrict $CI_JOB_TOKEN's push
+#                                 rights by default, so the tag-bump commits
+#                                 (deploy-dev, promote:stage, promote:prod)
+#                                 need their own token rather than relying on
+#                                 the job token.
+# $CI_REGISTRY / $CI_REGISTRY_USER / $CI_REGISTRY_PASSWORD / $CI_REGISTRY_IMAGE
+# are predefined by GitLab automatically once the project's Container
+# Registry is enabled — nothing to set for those.
+
+stages:
+  - lint
+  - test
+  - security
+  - build
+  - scan
+  - smoke
+  - push
+  - deploy-dev
+  - promote-stage
+  - promote-prod
+
+variables:
+  BACKEND_IMAGE: $CI_REGISTRY_IMAGE/backend
+  FRONTEND_IMAGE: $CI_REGISTRY_IMAGE/frontend
+  DOCKER_HOST: tcp://docker:2375
+  DOCKER_TLS_CERTDIR: ""
+
+.backend_rules: &backend_rules
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes: [backend/**/*]
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes: [backend/**/*]
+
+.frontend_rules: &frontend_rules
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes: [frontend/**/*]
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes: [frontend/**/*]
+
+.git_push_setup: &git_push_setup
+  - apk add --no-cache git yq
+  - git config user.name "gitlab-ci"
+  - git config user.email "gitlab-ci@example.com"
+  - git remote set-url origin "https://gitlab-ci-token:${GIT_PUSH_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git"
+
+# ---------------------------------------------------------------------------
+# Backend (NestJS)
+# ---------------------------------------------------------------------------
+
+backend:lint:
+  <<: *backend_rules
+  stage: lint
+  image: node:22-slim
+  cache:
+    key: { files: [backend/package-lock.json] }
+    paths: [backend/node_modules/]
+  script:
+    - cd backend && npm ci && npm run lint
+
+backend:test:
+  <<: *backend_rules
+  stage: test
+  image: node:22-slim
+  cache:
+    key: { files: [backend/package-lock.json] }
+    paths: [backend/node_modules/]
+  script:
+    - cd backend && npm ci && npx prisma generate && npm test -- --ci
+
+backend:sca:
+  <<: *backend_rules
+  stage: security
+  image: node:22-slim
+  script:
+    - cd backend && npm audit --omit=dev --audit-level=high
+
+backend:sast:
+  <<: *backend_rules
+  stage: security
+  image: sonarsource/sonar-scanner-cli:latest
+  script:
+    - sonar-scanner -Dsonar.projectBaseDir=backend -Dsonar.token=$SONAR_TOKEN
+  allow_failure: true # flip to false once the SonarCloud quality gate is tuned
+
+backend:build:
+  <<: *backend_rules
+  stage: build
+  image: docker:27
+  services: [docker:27-dind]
+  script:
+    - docker build -t $BACKEND_IMAGE:$CI_COMMIT_SHORT_SHA backend/
+    - docker save $BACKEND_IMAGE:$CI_COMMIT_SHORT_SHA -o backend-image.tar
+  artifacts:
+    paths: [backend-image.tar]
+    expire_in: 1 hour
+
+backend:scan:
+  <<: *backend_rules
+  stage: scan
+  image: docker:27
+  services: [docker:27-dind]
+  needs: [backend:build]
+  script:
+    - docker run --rm -i hadolint/hadolint < backend/Dockerfile
+    - docker load -i backend-image.tar
+    - docker run --rm -v /var/run/docker.sock:/var/run/docker.sock
+      aquasec/trivy image --severity HIGH,CRITICAL --exit-code 1
+      $BACKEND_IMAGE:$CI_COMMIT_SHORT_SHA
+
+backend:smoke:
+  <<: *backend_rules
+  stage: smoke
+  image: docker:27
+  services: [docker:27-dind]
+  needs: [backend:build]
+  before_script:
+    - apk add --no-cache python3 py3-pip git curl
+    - git clone --depth 1 "$ROBOTIC_TESTS_REPO" robotic-tests
+  script:
+    - docker load -i backend-image.tar
+    - docker tag $BACKEND_IMAGE:$CI_COMMIT_SHORT_SHA ecommerce-backend:dev
+    - docker compose up -d
+    - timeout 120 sh -c 'until curl -sf http://localhost:4000/health; do sleep 2; done'
+    - cd robotic-tests
+    - python3 -m venv .venv && . .venv/bin/activate
+    - pip install -r requirements.txt && rfbrowser init chromium --skip-browsers
+    - robot --outputdir output tests/api/
+  after_script:
+    - docker compose down -v
+
+backend:push:
+  stage: push
+  image: docker:27
+  services: [docker:27-dind]
+  needs: [backend:build, backend:scan, backend:smoke]
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes: [backend/**/*]
+  script:
+    - docker load -i backend-image.tar
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin $CI_REGISTRY
+    - docker tag $BACKEND_IMAGE:$CI_COMMIT_SHORT_SHA $BACKEND_IMAGE:dev
+    - docker push $BACKEND_IMAGE:$CI_COMMIT_SHORT_SHA
+    - docker push $BACKEND_IMAGE:dev
+
+backend:deploy-dev:
+  stage: deploy-dev
+  image: alpine:3.20
+  needs: [backend:push]
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes: [backend/**/*]
+  environment:
+    name: dev/backend
+  before_script: *git_push_setup
+  script:
+    - yq -i '.backend.image.repository = strenv(BACKEND_IMAGE) | .backend.image.tag = strenv(CI_COMMIT_SHORT_SHA)' deployment/helm/ecommerce/values-dev.yaml
+    - git add deployment/helm/ecommerce/values-dev.yaml
+    - git commit -m "deploy(backend): dev -> $CI_COMMIT_SHORT_SHA [skip ci]"
+    - git push origin HEAD:main
+
+# ---------------------------------------------------------------------------
+# Frontend (Next.js) — same shape, service-specific args only
+# ---------------------------------------------------------------------------
+
+frontend:lint:
+  <<: *frontend_rules
+  stage: lint
+  image: node:22-slim
+  cache:
+    key: { files: [frontend/package-lock.json] }
+    paths: [frontend/node_modules/]
+  script:
+    - cd frontend && npm ci && npm run lint
+
+frontend:sca:
+  <<: *frontend_rules
+  stage: security
+  image: node:22-slim
+  script:
+    - cd frontend && npm audit --omit=dev --audit-level=high
+
+frontend:sast:
+  <<: *frontend_rules
+  stage: security
+  image: sonarsource/sonar-scanner-cli:latest
+  script:
+    - sonar-scanner -Dsonar.projectBaseDir=frontend -Dsonar.token=$SONAR_TOKEN
+  allow_failure: true
+
+frontend:build:
+  <<: *frontend_rules
+  stage: build
+  image: docker:27
+  services: [docker:27-dind]
+  script:
+    - docker build
+      --build-arg NEXT_PUBLIC_API_URL=http://localhost:4000
+      --build-arg NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=$STRIPE_TEST_PUBLISHABLE_KEY
+      -t $FRONTEND_IMAGE:$CI_COMMIT_SHORT_SHA frontend/
+    - docker save $FRONTEND_IMAGE:$CI_COMMIT_SHORT_SHA -o frontend-image.tar
+  artifacts:
+    paths: [frontend-image.tar]
+    expire_in: 1 hour
+
+frontend:scan:
+  <<: *frontend_rules
+  stage: scan
+  image: docker:27
+  services: [docker:27-dind]
+  needs: [frontend:build]
+  script:
+    - docker run --rm -i hadolint/hadolint < frontend/Dockerfile
+    - docker load -i frontend-image.tar
+    - docker run --rm -v /var/run/docker.sock:/var/run/docker.sock
+      aquasec/trivy image --severity HIGH,CRITICAL --exit-code 1
+      $FRONTEND_IMAGE:$CI_COMMIT_SHORT_SHA
+
+frontend:smoke:
+  <<: *frontend_rules
+  stage: smoke
+  image: docker:27
+  services: [docker:27-dind]
+  needs: [frontend:build]
+  before_script:
+    - apk add --no-cache python3 py3-pip git curl
+    - git clone --depth 1 "$ROBOTIC_TESTS_REPO" robotic-tests
+  script:
+    - docker load -i frontend-image.tar
+    - docker tag $FRONTEND_IMAGE:$CI_COMMIT_SHORT_SHA ecommerce-frontend:dev
+    - docker compose up -d
+    - timeout 120 sh -c 'until curl -sf http://localhost:3000; do sleep 2; done'
+    - cd robotic-tests
+    - python3 -m venv .venv && . .venv/bin/activate
+    - pip install -r requirements.txt && rfbrowser init chromium --skip-browsers
+    - python3 -m playwright install --with-deps chromium
+    - robot --outputdir output tests/ui/storefront_ui.robot tests/ui/auth_ui.robot
+  after_script:
+    - docker compose down -v
+
+frontend:push:
+  stage: push
+  image: docker:27
+  services: [docker:27-dind]
+  needs: [frontend:build, frontend:scan, frontend:smoke]
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes: [frontend/**/*]
+  script:
+    - docker load -i frontend-image.tar
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin $CI_REGISTRY
+    - docker tag $FRONTEND_IMAGE:$CI_COMMIT_SHORT_SHA $FRONTEND_IMAGE:dev
+    - docker push $FRONTEND_IMAGE:$CI_COMMIT_SHORT_SHA
+    - docker push $FRONTEND_IMAGE:dev
+
+frontend:deploy-dev:
+  stage: deploy-dev
+  image: alpine:3.20
+  needs: [frontend:push]
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes: [frontend/**/*]
+  environment:
+    name: dev/frontend
+  before_script: *git_push_setup
+  script:
+    - yq -i '.frontend.image.repository = strenv(FRONTEND_IMAGE) | .frontend.image.tag = strenv(CI_COMMIT_SHORT_SHA)' deployment/helm/ecommerce/values-dev.yaml
+    - git add deployment/helm/ecommerce/values-dev.yaml
+    - git commit -m "deploy(frontend): dev -> $CI_COMMIT_SHORT_SHA [skip ci]"
+    - git push origin HEAD:main
+
+# ---------------------------------------------------------------------------
+# Promotion — manual only, mirrors .github/workflows/promote.yml.
+# Run via CI/CD > Pipelines > "Run pipeline", setting SERVICE/IMAGE_TAG, then
+# click the manual job for the target environment. IMAGE_TAG is the git-sha
+# tag already built, scanned, and running one environment down.
+# ---------------------------------------------------------------------------
+
+promote:stage:
+  stage: promote-stage
+  image: alpine:3.20
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      when: manual
+  environment:
+    name: stage
+  variables:
+    SERVICE: backend # backend | frontend | both
+    IMAGE_TAG: ""
+  before_script: *git_push_setup
+  script:
+    - test -n "$IMAGE_TAG" || (echo "IMAGE_TAG is required" && exit 1)
+    - |
+      if [ "$SERVICE" != "frontend" ]; then
+        yq -i ".backend.image.tag = \"$IMAGE_TAG\"" deployment/helm/ecommerce/values-stage.yaml
+      fi
+    - |
+      if [ "$SERVICE" != "backend" ]; then
+        yq -i ".frontend.image.tag = \"$IMAGE_TAG\"" deployment/helm/ecommerce/values-stage.yaml
+      fi
+    - git commit -am "promote($SERVICE): stage -> $IMAGE_TAG [skip ci]"
+    - git push origin HEAD:main
+
+promote:prod:
+  stage: promote-prod
+  image: alpine:3.20
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      when: manual
+  environment:
+    name: prod # protect this environment in Settings > CI/CD > Environments
+    # and restrict deployments to a Maintainers/CAB approval group —
+    # GitLab's equivalent of a GitHub Environment's required reviewers.
+  variables:
+    SERVICE: backend
+    IMAGE_TAG: ""
+  before_script: *git_push_setup
+  script:
+    - test -n "$IMAGE_TAG" || (echo "IMAGE_TAG is required" && exit 1)
+    - |
+      if [ "$SERVICE" != "frontend" ]; then
+        yq -i ".backend.image.tag = \"$IMAGE_TAG\"" deployment/helm/ecommerce/values-prod.yaml
+      fi
+    - |
+      if [ "$SERVICE" != "backend" ]; then
+        yq -i ".frontend.image.tag = \"$IMAGE_TAG\"" deployment/helm/ecommerce/values-prod.yaml
+      fi
+    - git commit -am "promote($SERVICE): prod -> $IMAGE_TAG [skip ci]"
+    - git push origin HEAD:main

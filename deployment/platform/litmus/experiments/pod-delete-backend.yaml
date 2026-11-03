@@ -1,0 +1,48 @@
+# Litmus ChaosEngine — pod-delete against the backend.
+#
+# The one real adaptation vs. a textbook Litmus example: this app's backend
+# is an Argo Rollout (strategy.md), not a plain Deployment, and generic
+# Litmus experiments only recognize `appkind: deployment|statefulset|
+# daemonset`. Targeting by label alone (annotationCheck: 'false', no
+# `appkind` set) works regardless of the owning controller — pod-delete just
+# needs to find pods matching `app: backend`, it doesn't need to understand
+# what created them. This is the adaptation notes/class-note.md's own
+# example (App kind = deployment) would silently fail on if copy-pasted
+# unmodified against this app.
+apiVersion: litmuschaos.io/v1alpha1
+kind: ChaosEngine
+metadata:
+  name: pod-delete-backend
+  namespace: ecommerce-dev
+spec:
+  engineState: "active"
+  annotationCheck: "false"
+  appinfo:
+    appns: "ecommerce-dev"
+    applabel: "app=backend"
+  chaosServiceAccount: litmus-admin
+  experiments:
+    - name: pod-delete
+      spec:
+        components:
+          env:
+            - name: TOTAL_CHAOS_DURATION
+              value: "30"
+            - name: CHAOS_INTERVAL
+              value: "10"
+            - name: FORCE
+              value: "false"
+        probe:
+          - name: backend-health-check
+            type: httpProbe
+            mode: Continuous
+            httpProbe/inputs:
+              url: "http://backend.ecommerce-dev.svc.cluster.local:4000/health"
+              method:
+                get:
+                  criteria: "=="
+                  responseCode: "200"
+            runProperties:
+              probeTimeout: 5
+              interval: 5
+              retry: 3

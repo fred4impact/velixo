@@ -1,0 +1,126 @@
+# Default values — shaped for `dev`. values-stage.yaml / values-prod.yaml
+# override what differs. See deployment/docs/*.md for how these get applied.
+
+env: dev
+
+backend:
+  image:
+    repository: ecommerce-backend
+    tag: dev
+    pullPolicy: IfNotPresent
+  replicas: 1
+  resources:
+    requests: { cpu: 100m, memory: 192Mi }
+    limits: { cpu: 500m, memory: 512Mi }
+  hpa:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
+  # One "step" per list item, each shaped exactly like an Argo Rollouts
+  # canary step — rendered as-is via toYaml, no translation needed.
+  canarySteps:
+    - setWeight: 20
+    - pause: {}
+    - setWeight: 50
+    - pause: {}
+    - setWeight: 100
+  # Non-secret env vars (become the backend-config ConfigMap).
+  config:
+    PORT: "4000"
+    NODE_ENV: production
+    JWT_ACCESS_EXPIRES_IN: 15m
+    JWT_REFRESH_EXPIRES_IN: 7d
+    BCRYPT_SALT_ROUNDS: "10"
+    FLAT_TAX_RATE: "0.08"
+    FLAT_SHIPPING_RATE: "5.00"
+    FRONTEND_URL: http://ecommerce.127.0.0.1.nip.io
+    MINIO_ENDPOINT: minio
+    MINIO_PORT: "9000"
+    MINIO_USE_SSL: "false"
+    MINIO_BUCKET: product-images
+    MINIO_PUBLIC_URL: http://minio.ecommerce.127.0.0.1.nip.io
+    SMTP_HOST: mailpit
+    SMTP_PORT: "1025"
+    MAIL_FROM: no-reply@ecommerce.local
+  # Secret env vars (via ExternalSecret -> AWS Secrets Manager). Nothing
+  # secret is ever set directly in these values files.
+  externalSecret:
+    secretsManagerKey: ecommerce/dev/backend
+
+frontend:
+  image:
+    repository: ecommerce-frontend
+    tag: dev
+    pullPolicy: IfNotPresent
+  replicas: 1
+  resources:
+    requests: { cpu: 100m, memory: 192Mi }
+    limits: { cpu: 500m, memory: 512Mi }
+  hpa:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
+  canarySteps:
+    - setWeight: 20
+    - pause: {}
+    - setWeight: 50
+    - pause: {}
+    - setWeight: 100
+  config:
+    PORT: "3000"
+    NODE_ENV: production
+    INTERNAL_API_URL: http://backend:4000
+
+# In-cluster MySQL/MinIO/Mailpit — dev only. stage/prod use real AWS
+# RDS/S3/SMTP instead (set enabled: false there).
+devServices:
+  enabled: true
+  mysql:
+    database: ecommerce
+    externalSecretKey: ecommerce/dev/mysql
+    storage: 5Gi
+  minio:
+    externalSecretKey: ecommerce/dev/minio
+    storage: 5Gi
+  mailpit: {}
+
+# External Secrets Operator auth/provider. "static" or "irsa" both target
+# AWS Secrets Manager ("static" for kind — no OIDC federation available;
+# "irsa" for EKS). "vault" targets an in-cluster Vault dev server instead —
+# an option only for `dev`, so local work has zero AWS dependency at all;
+# see deployment/platform/vault/ + docs/electives-install-guide.md.
+externalSecrets:
+  region: us-east-1
+  auth: static
+  static:
+    # Created manually, out-of-band, never committed. See kind guide.
+    secretName: aws-creds
+  irsa:
+    serviceAccountName: eso-irsa
+    roleArn: "arn:aws:iam::ACCOUNT_ID:role/CHANGE_ME"
+  vault:
+    address: http://vault.vault.svc.cluster.local:8200
+    role: ecommerce-dev
+    serviceAccountName: default
+
+ingress:
+  className: nginx
+  frontendHost: ecommerce.127.0.0.1.nip.io
+  backendHost: api.ecommerce.127.0.0.1.nip.io
+  # Only rendered when devServices.enabled is true — lets the browser reach
+  # MinIO directly, mirroring docker-compose's published :9000 port.
+  minioHost: minio.ecommerce.127.0.0.1.nip.io
+
+# Off by default — turn on once kube-prometheus-stack is installed (see
+# deployment/platform/prometheus-grafana/ + deployment/docs/
+# electives-install-guide.md). Renders a ServiceMonitor pointed at the
+# backend's /metrics route (backend/src/metrics).
+monitoring:
+  enabled: false
+  interval: 15s
+  tls:
+    enabled: false
+    clusterIssuer: letsencrypt
+    secretName: ""

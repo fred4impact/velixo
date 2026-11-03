@@ -1,0 +1,4 @@
+# values.yaml's defaults are already shaped for dev — this file exists so
+# `-f values-dev.yaml` is symmetrical with stage/prod, and as the place to
+# put dev-only overrides later.
+env: dev

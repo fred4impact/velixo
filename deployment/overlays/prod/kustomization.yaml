@@ -1,0 +1,64 @@
+# Replace ACCOUNT_ID (here and in serviceaccount.yaml) with your real AWS
+# account id. Image tags below are placeholders — CI updates them via
+# `kustomize edit set image` as part of the deploy workflow, normally by
+# promoting the exact tag that was already validated in stage.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: ecommerce-prod
+
+resources:
+  - namespace.yaml
+  - serviceaccount.yaml
+  - secretstore.yaml
+  - ../../base
+
+images:
+  - name: ecommerce-backend
+    newName: ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/ecommerce-backend
+    newTag: prod
+  - name: ecommerce-frontend
+    newName: ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/ecommerce-frontend
+    newTag: prod
+
+patches:
+  - path: configmap-patch.yaml
+  - path: ingress-tls-patch.yaml
+  - path: canary-patch.yaml
+  - target:
+      kind: ExternalSecret
+      name: backend-secret
+    patch: |-
+      - op: replace
+        path: /spec/dataFrom/0/extract/key
+        value: ecommerce/prod/backend
+  - target:
+      kind: HorizontalPodAutoscaler
+      name: backend
+    patch: |-
+      - op: replace
+        path: /spec/minReplicas
+        value: 3
+      - op: replace
+        path: /spec/maxReplicas
+        value: 10
+  - target:
+      kind: HorizontalPodAutoscaler
+      name: frontend
+    patch: |-
+      - op: replace
+        path: /spec/minReplicas
+        value: 3
+      - op: replace
+        path: /spec/maxReplicas
+        value: 10
+  - target:
+      kind: Ingress
+      name: ecommerce
+    patch: |-
+      - op: replace
+        path: /spec/rules/0/host
+        value: ecommerce.example.com
+      - op: replace
+        path: /spec/rules/1/host
+        value: api.ecommerce.example.com

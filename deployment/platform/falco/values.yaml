@@ -1,0 +1,18 @@
+# falcosecurity/falco — eBPF driver (works unmodified on both kind and EKS,
+# no kernel module compilation needed).
+driver:
+  kind: ebpf
+
+falcosidekick:
+  enabled: true
+  webui:
+    enabled: true
+
+resources:
+  requests: { cpu: 100m, memory: 256Mi }
+  limits: { memory: 512Mi }
+
+# customRules.<any-filename>.yaml is loaded via --set-file at install time
+# (see docs/electives-install-guide.md §3) from rules-ecommerce.yaml in
+# this same directory — not duplicated into this file, so the rule stays a
+# normal reviewable YAML file rather than a string blob in values.

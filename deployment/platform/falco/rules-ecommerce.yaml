@@ -1,0 +1,26 @@
+# Custom Falco rule scoped to this app, narrower than Falco's stock
+# "Terminal shell in container" rule (which fires cluster-wide, including
+# on Falco's own DaemonSet and every kube-system pod). `shell_binaries` is
+# a list already defined in Falco's default ruleset (falco_rules.yaml),
+# loaded before this file — no need to redefine it here.
+#
+# Installed via --set-file (see docs/electives-install-guide.md §3), not
+# copy-pasted into values.yaml, so this stays a normal, reviewable YAML file.
+- rule: Unexpected shell in ecommerce backend or frontend pod
+  desc: >
+    A shell was spawned inside one of the ecommerce app's own containers —
+    plausible signal of a container escape or RCE via a vulnerable
+    dependency (the backend accepts file uploads and runs third-party npm
+    packages, both realistic entry points).
+  condition: >
+    spawned_process
+    and container
+    and k8s.ns.name in (ecommerce-dev, ecommerce-stage, ecommerce-prod)
+    and k8s.pod.label.app in (backend, frontend)
+    and proc.name in (shell_binaries)
+  output: >
+    Shell spawned in ecommerce pod (user=%user.name shell=%proc.name
+    parent=%proc.pname cmdline=%proc.cmdline pod=%k8s.pod.name
+    namespace=%k8s.ns.name image=%container.image.repository)
+  priority: WARNING
+  tags: [ecommerce, shell, mitre_execution]

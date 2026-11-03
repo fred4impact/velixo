@@ -1,0 +1,59 @@
+env: prod
+
+backend:
+  image:
+    repository: ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/ecommerce-backend
+    tag: prod # CI overwrites this tag, normally promoting the exact tag already validated in stage
+  hpa:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 10
+  canarySteps:
+    - setWeight: 10
+    - pause: { duration: 10m }
+    - setWeight: 50
+    - pause: { duration: 10m }
+    - setWeight: 100
+  config:
+    FRONTEND_URL: https://ecommerce.example.com
+    MINIO_ENDPOINT: s3.us-east-1.amazonaws.com
+    MINIO_PORT: "443"
+    MINIO_USE_SSL: "true"
+    MINIO_BUCKET: ecommerce-prod-product-images
+    MINIO_PUBLIC_URL: https://ecommerce-prod-product-images.s3.us-east-1.amazonaws.com
+  externalSecret:
+    secretsManagerKey: ecommerce/prod/backend
+
+frontend:
+  image:
+    repository: ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/ecommerce-frontend
+    tag: prod
+  hpa:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 10
+  canarySteps:
+    - setWeight: 10
+    - pause: { duration: 10m }
+    - setWeight: 50
+    - pause: { duration: 10m }
+    - setWeight: 100
+  config:
+    INTERNAL_API_URL: http://backend:4000
+
+devServices:
+  enabled: false
+
+externalSecrets:
+  auth: irsa
+  irsa:
+    serviceAccountName: eso-irsa
+    roleArn: "arn:aws:iam::ACCOUNT_ID:role/ecommerce-prod-eso"
+
+ingress:
+  frontendHost: ecommerce.example.com
+  backendHost: api.ecommerce.example.com
+  tls:
+    enabled: true
+    clusterIssuer: letsencrypt
+    secretName: ecommerce-prod-tls

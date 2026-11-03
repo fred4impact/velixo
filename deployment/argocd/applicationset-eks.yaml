@@ -1,0 +1,36 @@
+# Applied on the EKS cluster's ArgoCD. A `list` generator templates one
+# Application per environment — stage and prod are structurally identical,
+# just different values files and namespaces.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: ecommerce-eks
+  namespace: argocd
+spec:
+  generators:
+    - list:
+        elements:
+          - env: stage
+          - env: prod
+  template:
+    metadata:
+      name: "ecommerce-{{env}}"
+    spec:
+      project: ecommerce
+      source:
+        repoURL: https://github.com/YOUR_ORG/ecommerce.git
+        targetRevision: main
+        path: deployment/helm/ecommerce
+        helm:
+          releaseName: ecommerce
+          valueFiles:
+            - "values-{{env}}.yaml"
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: "ecommerce-{{env}}"
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true

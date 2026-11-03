@@ -1,0 +1,33 @@
+# Two hosts: the storefront/admin (frontend) and a separate API host, since
+# the browser calls the backend directly (NEXT_PUBLIC_API_URL), it isn't
+# proxied through Next.js. Hostnames are patched per overlay — index 0 is
+# always the frontend rule, index 1 is always the backend rule.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ecommerce
+  labels:
+    app.kubernetes.io/part-of: ecommerce
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: ecommerce.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 3000
+    - host: api.ecommerce.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: backend
+                port:
+                  number: 4000

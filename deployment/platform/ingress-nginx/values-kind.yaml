@@ -1,0 +1,17 @@
+# helm install ingress-nginx ingress-nginx/ingress-nginx -n ingress-nginx --create-namespace -f values-kind.yaml
+#
+# kind has no cloud load balancer to provision, so the controller binds
+# directly to host ports 80/443 on the node — paired with the kind cluster
+# config's extraPortMappings (see docs/kind-local-guide.md) to reach it at
+# localhost:80/443 from the host.
+controller:
+  hostPort:
+    enabled: true
+  service:
+    type: ClusterIP
+  nodeSelector:
+    ingress-ready: "true"
+  tolerations:
+    - key: node-role.kubernetes.io/control-plane
+      operator: Equal
+      effect: NoSchedule

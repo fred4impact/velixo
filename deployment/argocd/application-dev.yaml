@@ -1,0 +1,28 @@
+# Applied on the kind cluster's own ArgoCD — manages only `dev`, deployed to
+# the same cluster ArgoCD runs on. Sources the Helm chart (the deployed
+# artifact) — deployment/overlays/dev (Kustomize) is kept as reference only
+# and is not applied by ArgoCD.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ecommerce-dev
+  namespace: argocd
+spec:
+  project: ecommerce
+  source:
+    repoURL: https://github.com/YOUR_ORG/ecommerce.git
+    targetRevision: main
+    path: deployment/helm/ecommerce
+    helm:
+      releaseName: ecommerce
+      valueFiles:
+        - values-dev.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: ecommerce-dev
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

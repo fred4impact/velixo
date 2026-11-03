@@ -1,0 +1,20 @@
+# hashicorp/vault — dev-mode server, `dev` environment only.
+#
+# server.dev.enabled=true runs Vault in-memory, auto-unsealed, root token
+# fixed to "root" — deliberately not production-hardened. This gives local
+# `kind` work a real secrets backend with zero AWS dependency; it is NOT a
+# substitute for a production Vault (HA storage backend, auto-unseal via
+# KMS, etc.) — stage/prod keep using AWS Secrets Manager + IRSA, see
+# helm/ecommerce/templates/secretstore.yaml.
+server:
+  dev:
+    enabled: true
+    devRootToken: "root"
+  dataStorage:
+    enabled: false # in-memory only; data is gone on pod restart, by design
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { memory: 256Mi }
+
+injector:
+  enabled: false # not using the sidecar-injector pattern; ESO talks to Vault directly

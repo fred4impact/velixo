@@ -1,0 +1,42 @@
+# Litmus ChaosEngine — container-kill against the backend's "main"
+# container (as opposed to pod-delete.yaml, this kills the container process
+# but leaves the pod object in place — a slightly different failure mode:
+# kubelet restarts the container in place rather than the ReplicaSet/Rollout
+# creating a new pod).
+apiVersion: litmuschaos.io/v1alpha1
+kind: ChaosEngine
+metadata:
+  name: container-kill-backend
+  namespace: ecommerce-dev
+spec:
+  engineState: "active"
+  annotationCheck: "false"
+  appinfo:
+    appns: "ecommerce-dev"
+    applabel: "app=backend"
+  chaosServiceAccount: litmus-admin
+  experiments:
+    - name: container-kill
+      spec:
+        components:
+          env:
+            - name: TARGET_CONTAINER
+              value: "backend"
+            - name: CHAOS_INTERVAL
+              value: "10"
+            - name: TOTAL_CHAOS_DURATION
+              value: "30"
+        probe:
+          - name: backend-health-check
+            type: httpProbe
+            mode: Continuous
+            httpProbe/inputs:
+              url: "http://backend.ecommerce-dev.svc.cluster.local:4000/health"
+              method:
+                get:
+                  criteria: "=="
+                  responseCode: "200"
+            runProperties:
+              probeTimeout: 5
+              interval: 5
+              retry: 3

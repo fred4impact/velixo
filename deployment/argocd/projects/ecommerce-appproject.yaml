@@ -1,0 +1,26 @@
+# Same AppProject definition is applied on both the kind ArgoCD (dev) and the
+# EKS ArgoCD (stage/prod) — each only ever creates Applications that fall
+# within its own cluster's destinations, so scoping is harmless to share.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: ecommerce
+  namespace: argocd
+spec:
+  description: E-commerce backend + frontend, all environments
+  sourceRepos:
+    # Replace with your real git remote once this repo is pushed.
+    - https://github.com/YOUR_ORG/ecommerce.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: ecommerce-dev
+    - server: https://kubernetes.default.svc
+      namespace: ecommerce-stage
+    - server: https://kubernetes.default.svc
+      namespace: ecommerce-prod
+  # Namespaces are created by ArgoCD itself (syncOptions: CreateNamespace=true
+  # on each Application/ApplicationSet), not by an in-chart manifest, so no
+  # clusterResourceWhitelist entry is needed for them.
+  namespaceResourceWhitelist:
+    - group: "*"
+      kind: "*"

@@ -1,0 +1,44 @@
+# Replace ACCOUNT_ID (here and in serviceaccount.yaml) with your real AWS
+# account id. Image tags below are placeholders — CI updates them via
+# `kustomize edit set image` as part of the deploy workflow.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: ecommerce-stage
+
+resources:
+  - namespace.yaml
+  - serviceaccount.yaml
+  - secretstore.yaml
+  - ../../base
+
+images:
+  - name: ecommerce-backend
+    newName: ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/ecommerce-backend
+    newTag: stage
+  - name: ecommerce-frontend
+    newName: ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/ecommerce-frontend
+    newTag: stage
+
+patches:
+  - path: configmap-patch.yaml
+  - path: ingress-tls-patch.yaml
+  - path: canary-patch.yaml
+  - target:
+      kind: ExternalSecret
+      name: backend-secret
+    patch: |-
+      - op: replace
+        path: /spec/dataFrom/0/extract/key
+        value: ecommerce/stage/backend
+  # HPA min/max already match base defaults (2/6) for stage — no patch needed.
+  - target:
+      kind: Ingress
+      name: ecommerce
+    patch: |-
+      - op: replace
+        path: /spec/rules/0/host
+        value: ecommerce-stage.example.com
+      - op: replace
+        path: /spec/rules/1/host
+        value: api.ecommerce-stage.example.com

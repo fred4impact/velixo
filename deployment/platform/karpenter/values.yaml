@@ -1,0 +1,16 @@
+# karpenter (EKS only — kind has no cloud node-provisioning API for
+# Karpenter to call; see docs/electives-install-guide.md §4).
+#
+# settings.clusterName / clusterEndpoint / interruptionQueue are filled in
+# at install time from eksctl's output, not hardcoded here — see the
+# `helm install --set` invocation in the install guide.
+serviceAccount:
+  annotations:
+    eks.amazonaws.com/role-arn: "arn:aws:iam::ACCOUNT_ID:role/ecommerce-karpenter"
+
+controller:
+  resources:
+    requests: { cpu: 250m, memory: 256Mi }
+    limits: { memory: 512Mi }
+
+replicas: 2 # HA for the controller itself

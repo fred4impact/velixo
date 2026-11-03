@@ -1,0 +1,14 @@
+# Non-secret values pointing at the in-cluster MySQL/MinIO/Mailpit instead of
+# real AWS services. ConfigMap data is merged key-by-key, not replaced.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backend-config
+data:
+  FRONTEND_URL: http://ecommerce.127.0.0.1.nip.io
+  MINIO_ENDPOINT: minio
+  MINIO_PORT: "9000"
+  MINIO_PUBLIC_URL: http://minio.ecommerce.127.0.0.1.nip.io
+  SMTP_HOST: mailpit
+  SMTP_PORT: "1025"
+  MAIL_FROM: no-reply@ecommerce.local

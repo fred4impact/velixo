@@ -1,0 +1,48 @@
+# kube-prometheus-stack (prometheus-community/kube-prometheus-stack) — one
+# release bundling Prometheus Operator + Prometheus + Alertmanager + Grafana
+# + the ServiceMonitor CRD.
+#
+# Deliberate deviation from class-note.md: the source notes install the
+# bare `prometheus-community/prometheus` chart but set
+# `prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues` on it
+# — that value path only exists on kube-prometheus-stack (the Operator
+# chart); the bare chart has no ServiceMonitor CRD support at all. Since
+# this app's own chart ships a ServiceMonitor
+# (helm/ecommerce/templates/servicemonitor.yaml), kube-prometheus-stack is
+# the chart that's actually compatible with it.
+
+prometheus:
+  prometheusSpec:
+    # Without this, Prometheus only scrapes ServiceMonitors created by this
+    # same Helm release — it would otherwise silently ignore the app's own
+    # ServiceMonitor, which lives in the separate `ecommerce` Helm release.
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    retention: 15d
+    resources:
+      requests: { cpu: 250m, memory: 512Mi }
+      limits: { memory: 1Gi }
+
+grafana:
+  adminPassword: admin # change before any non-local use
+  defaultDashboardsEnabled: true
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard # ConfigMaps with this label auto-load as dashboards
+  datasources:
+    datasources.yaml:
+      apiVersion: 1
+      datasources:
+        - name: Prometheus
+          type: prometheus
+          url: http://kube-prometheus-stack-prometheus:9090
+          isDefault: true
+
+alertmanager:
+  enabled: true
+
+# kind: NodePort (see docs/electives-install-guide.md §1.4 for the nip.io
+# host used instead, via ingress, matching how the app itself is exposed).
+# EKS: also via ingress-nginx + cert-manager, not a raw NodePort — set per
+# environment at install time with `--set grafana.ingress.hosts[0]=...`.

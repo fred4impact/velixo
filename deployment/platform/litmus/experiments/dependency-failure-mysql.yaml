@@ -1,0 +1,49 @@
+# Litmus ChaosEngine — simulates the MySQL dependency being unavailable,
+# via pod-delete against the single-replica mysql StatefulSet (dev only;
+# stage/prod use RDS, a different failure-injection story entirely).
+#
+# Expected result on first run: FAILURE, and that's the point of running it.
+# This backend has no Prisma connection-retry/circuit-breaker logic today
+# (see backend/src/prisma/prisma.module.ts) — checkout requests will 500
+# for the ~10-20s it takes the StatefulSet to reschedule the pod and the
+# backend's connection pool to recover, rather than degrading gracefully
+# (e.g. a 503 with Retry-After, or a brief request queue). Treat a failed
+# steady-state hypothesis here as a tracked follow-up
+# (add retry/backoff to the Prisma client init), not a broken experiment.
+apiVersion: litmuschaos.io/v1alpha1
+kind: ChaosEngine
+metadata:
+  name: dependency-failure-mysql
+  namespace: ecommerce-dev
+spec:
+  engineState: "active"
+  annotationCheck: "false"
+  appinfo:
+    appns: "ecommerce-dev"
+    applabel: "app=mysql"
+  chaosServiceAccount: litmus-admin
+  experiments:
+    - name: pod-delete
+      spec:
+        components:
+          env:
+            - name: TOTAL_CHAOS_DURATION
+              value: "30"
+            - name: CHAOS_INTERVAL
+              value: "10"
+            - name: FORCE
+              value: "true" # mysql has no graceful-termination window worth waiting out here
+        probe:
+          - name: checkout-still-works
+            type: httpProbe
+            mode: Continuous
+            httpProbe/inputs:
+              url: "http://backend.ecommerce-dev.svc.cluster.local:4000/health"
+              method:
+                get:
+                  criteria: "=="
+                  responseCode: "200"
+            runProperties:
+              probeTimeout: 5
+              interval: 5
+              retry: 1 # deliberately low — we want this probe to actually fail and be visible, not be retried into silence

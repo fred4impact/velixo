@@ -1,0 +1,15 @@
+# Universally-needed pieces across all three environments. mysql/minio/mailpit
+# are separate bases pulled in only by overlays/dev — stage and prod use real
+# AWS RDS/S3/SMTP instead (see strategy.md).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - backend
+  - frontend
+  - ingress.yaml
+
+labels:
+  - pairs:
+      app.kubernetes.io/managed-by: kustomize
+    includeSelectors: false

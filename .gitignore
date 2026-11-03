@@ -1,0 +1,29 @@
+# Secrets — only the .example templates are committed
+.env
+.env.*
+!.env.example
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+.next/
+out/
+build/
+coverage/
+*.tsbuildinfo
+
+# Prisma generated client
+backend/generated/
+
+# Test run output
+output/
+log.html
+report.html
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.log

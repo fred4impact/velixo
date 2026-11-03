@@ -1,0 +1,6 @@
+# litmuschaos/litmus — control plane only; experiments themselves live in
+# ./experiments/, applied separately per docs/electives-install-guide.md §5.
+portal:
+  frontend:
+    service:
+      type: ClusterIP # exposed via ingress-nginx instead of a raw NodePort, matching the app itself

@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backend-config
+data:
+  FRONTEND_URL: https://ecommerce.example.com
+  MINIO_ENDPOINT: s3.us-east-1.amazonaws.com
+  MINIO_PORT: "443"
+  MINIO_USE_SSL: "true"
+  MINIO_BUCKET: ecommerce-prod-product-images
+  MINIO_PUBLIC_URL: https://ecommerce-prod-product-images.s3.us-east-1.amazonaws.com

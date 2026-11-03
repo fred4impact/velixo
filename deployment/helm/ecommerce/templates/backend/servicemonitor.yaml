@@ -1,0 +1,23 @@
+{{- if .Values.monitoring.enabled }}
+# Requires the ServiceMonitor CRD — i.e. kube-prometheus-stack installed
+# first (deployment/platform/prometheus-grafana/values.yaml). Points at the
+# backend Service's "http" port, path /metrics (backend/src/metrics),
+# not a separate port — the app exposes app + metrics on the same 4000.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: backend
+  labels:
+    {{- include "ecommerce.labels" . | nindent 4 }}
+    # Matches prometheus-grafana's values.yaml
+    # (serviceMonitorSelectorNilUsesHelmValues: false means "watch every
+    # namespace", so no extra release-label requirement here).
+spec:
+  selector:
+    matchLabels:
+      app: backend
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: {{ .Values.monitoring.interval }}
+{{- end }}
